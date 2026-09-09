@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>과부하 트래커</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0b0f19; color: #f1f5f9; font-family: -apple-system, sans-serif; padding-top: env(safe-area-inset-top); padding-bottom: calc(env(safe-area-inset-bottom) + 85px); -webkit-tap-highlight-color: transparent; }
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <header class="sticky top-0 z-30 bg-[#0f172a] border-b border-slate-800 p-3">
+    <div class="max-w-md mx-auto flex justify-between items-center">
+      <h1 class="font-bold text-base text-white">⚡ 과부하 트래커</h1>
+      <div class="flex gap-1 text-xs">
+        <button onclick="exportData()" class="px-2 py-1 bg-slate-800 rounded text-sky-400 border border-slate-700">백업</button>
+        <label class="px-2 py-1 bg-slate-800 rounded text-slate-300 border border-slate-700">복원<input type="file" onchange="importData(event)" class="hidden"/></label>
+      </div>
+    </div>
+    <!-- 4분할 루틴 탭 -->
+    <div class="max-w-md mx-auto mt-2 grid grid-cols-4 gap-1 bg-slate-950 p-1 rounded-xl">
+      <button onclick="switchDay('UPPER_1')" id="t-UPPER_1" class="py-1.5 text-xs font-bold rounded-lg text-center">상체 1일</button>
+      <button onclick="switchDay('LOWER_1')" id="t-LOWER_1" class="py-1.5 text-xs font-bold rounded-lg text-center">하체 1일</button>
+      <button onclick="switchDay('UPPER_2')" id="t-UPPER_2" class="py-1.5 text-xs font-bold rounded-lg text-center">상체 2일</button>
+      <button onclick="switchDay('LOWER_2')" id="t-LOWER_2" class="py-1.5 text-xs font-bold rounded-lg text-center">하체 2일</button>
+    </div>
+  </header>
+
+  <main class="max-w-md mx-auto p-3 space-y-3 flex-1 w-full">
+    <div id="list" class="space-y-3"></div>
+    <button onclick="openAddSlotModal()" class="w-full py-3 bg-slate-900 border border-dashed border-slate-700 rounded-xl text-sky-400 font-bold text-sm flex items-center justify-center gap-1">
+      ＋ 현재 루틴에 슬롯 추가하기
+    </button>
+  </main>
+
+  <div class="fixed bottom-0 left-0 right-0 p-3 bg-[#0b0f19]/95 z-20 border-t border-slate-900">
+    <button onclick="completeWorkout()" class="w-full py-3.5 bg-sky-500 rounded-xl font-bold text-slate-950 text-base shadow">✓ 오늘 운동 완료 (목표 달성시 자동 증량)</button>
+  </div>
+
+  <!-- 종목 교체 모달 -->
+  <div id="swapModal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] flex flex-col p-4 shadow-2xl">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <div>
+          <h3 class="font-bold text-base text-white">종목 교체</h3>
+          <p id="swapModalSub" class="text-[11px] text-sky-400 font-semibold mt-0.5"></p>
+        </div>
+        <button onclick="closeSwapModal()" class="text-slate-400 text-xl px-2">✕</button>
+      </div>
+
+      <div class="mt-2 grid grid-cols-7 gap-1 bg-slate-950 p-1 rounded-lg text-center" id="categoryTabs"></div>
+
+      <div class="my-2 flex gap-2">
+        <input id="newCustomExInput" type="text" placeholder="새 종목 직접 등록" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"/>
+        <button onclick="addNewCustomExercise()" class="bg-sky-500 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs shrink-0">등록</button>
+      </div>
+
+      <p class="text-[10px] text-slate-400 mb-1.5">터치: 교체 | [부위변경]: 다른부위로 이동 | [수정]: 이름변경</p>
+      <div id="exerciseLibraryList" class="flex-1 overflow-y-auto space-y-1.5 pr-1"></div>
+    </div>
+  </div>
+
+  <!-- 메모 모달 -->
+  <div id="memoModal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl flex flex-col p-4 shadow-xl">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <h3 id="memoModalTitle" class="font-bold text-base text-white">운동 메모</h3>
+        <button onclick="closeMemoModal()" class="text-slate-400 text-xl px-2">✕</button>
+      </div>
+      <div class="py-3">
+        <textarea id="memoInput" rows="4" placeholder="머신 세팅 팁을 적어두세요." class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-sky-500 resize-none"></textarea>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+        <button onclick="closeMemoModal()" class="px-3 py-2 text-xs text-slate-400 rounded-lg">취소</button>
+        <button onclick="saveMemo()" class="px-4 py-2 text-xs font-bold bg-sky-500 text-slate-950 rounded-lg">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 절대 덮어쓰지 않는 단독 고유 키
+    const STORAGE_KEY = 'OVERLOAD_ABSOLUTE_V1';
+
+    const CATEGORIES = [
+      { id: 'ALL', name: '전체' },
+      { id: 'CHEST', name: '가슴' },
+      { id: 'BACK', name: '등' },
+      { id: 'LEG', name: '하체' },
+      { id: 'SHOULDER', name: '어깨' },
+      { id: 'BICEPS', name: '이두' },
+      { id: 'TRICEPS', name: '삼두' }
+    ];
+
+    const RAW_INIT_ROUTINES = {
+      UPPER_1: [
+        { label: '가슴', category: 'CHEST', exName: '해머프레스', role: 'MAIN' },
+        { label: '가슴', category: 'CHEST', exName: '인클라인 해머프레스', role: 'ASSIST' },
+        { label: '등', category: 'BACK', exName: '풀업', role: 'MAIN' },
+        { label: '등', category: 'BACK', exName: '롱풀', role: 'ASSIST' },
+        { label: '이두', category: 'BICEPS', exName: '이지바컬', role: 'ASSIST' },
+        { label: '삼두', category: 'TRICEPS', exName: '푸쉬다운', role: 'ASSIST' }
+      ],
+      LOWER_1: [
+        { label: '하체', category: 'LEG', exName: 'V스쿼트', role: 'MAIN' },
+        { label: '하체', category: 'LEG', exName: '레그익스텐션', role: 'ASSIST' },
+        { label: '하체 뒷판', category: 'LEG', exName: '라잉레그컬', role: 'ASSIST' },
+        { label: '하체 둔근', category: 'LEG', exName: '힙어브덕션', role: 'ASSIST' },
+        { label: '어깨', category: 'SHOULDER', exName: '바벨오버헤드프레스', role: 'MAIN' },
+        { label: '어깨', category: 'SHOULDER', exName: '사레레머신', role: 'ASSIST' },
+        { label: '어깨', category: 'SHOULDER', exName: '리버스펙덱플라이', role: 'ASSIST' }
+      ],
+      UPPER_2: [
+        { label: '가슴', category: 'CHEST', exName: '체스트프레스머신', role: 'MAIN' },
+        { label: '가슴', category: 'CHEST', exName: '디클라인 해머프레스', role: 'ASSIST' },
+        { label: '등', category: 'BACK', exName: '시티드로우', role: 'MAIN' },
+        { label: '등', category: 'BACK', exName: '랫풀다운', role: 'ASSIST' },
+        { label: '이두', category: 'BICEPS', exName: '해머컬', role: 'ASSIST' },
+        { label: '삼두', category: 'TRICEPS', exName: '오버헤드익스텐션', role: 'ASSIST' }
+      ],
+      LOWER_2: [
+        { label: '하체', category: 'LEG', exName: '핵스쿼트', role: 'MAIN' },
+        { label: '하체', category: 'LEG', exName: '레그익스텐션', role: 'ASSIST' },
+        { label: '하체 뒷판', category: 'LEG', exName: '루마니안 데드리프트', role: 'MAIN' },
+        { label: '하체 뒷판', category: 'LEG', exName: '시티드레그컬', role: 'ASSIST' },
+        { label: '어깨', category: 'SHOULDER', exName: '밀리터리프레스', role: 'MAIN' },
+        { label: '어깨', category: 'SHOULDER', exName: '사레레머신', role: 'ASSIST' },
+        { label: '어깨', category: 'SHOULDER', exName: '리버스펙덱플라이', role: 'ASSIST' }
+      ]
+    };
+
+    const RAW_INIT_EX_DATA = {
+      '해머프레스': { cat: 'CHEST', MAIN: [{w:90,r:7},{w:90,r:3},{w:90,r:4}], ASSIST: [{w:60,r:10},{w:60,r:9},{w:60,r:8}] },
+      '인클라인 해머프레스': { cat: 'CHEST', MAIN: [{w:70,r:6},{w:70,r:6},{w:70,r:6}], ASSIST: [{w:60,r:6},{w:60,r:6},{w:60,r:5}] },
+      '체스트프레스머신': { cat: 'CHEST', MAIN: [{w:50,r:6},{w:50,r:6},{w:50,r:6}], ASSIST: [{w:40,r:10},{w:40,r:9},{w:40,r:8}] },
+      '디클라인 해머프레스': { cat: 'CHEST', MAIN: [{w:50,r:6},{w:50,r:6},{w:50,r:6}], ASSIST: [{w:40,r:8},{w:40,r:8},{w:40,r:8}] },
+      '펙덱플라이': { cat: 'CHEST', MAIN: [{w:45,r:6},{w:45,r:6},{w:45,r:6}], ASSIST: [{w:35,r:8},{w:35,r:8},{w:35,r:8}] },
+      '풀업': { cat: 'BACK', MAIN: [{w:0,r:7},{w:0,r:6},{w:0,r:5}], ASSIST: [{w:0,r:10},{w:0,r:8},{w:0,r:8}] },
+      '롱풀': { cat: 'BACK', MAIN: [{w:80,r:6},{w:80,r:6},{w:80,r:6}], ASSIST: [{w:70,r:6},{w:70,r:5},{w:70,r:4}] },
+      '시티드로우': { cat: 'BACK', MAIN: [{w:50,r:6},{w:50,r:6},{w:50,r:6}], ASSIST: [{w:40,r:10},{w:40,r:9},{w:40,r:8}] },
+      '랫풀다운': { cat: 'BACK', MAIN: [{w:60,r:6},{w:60,r:6},{w:60,r:6}], ASSIST: [{w:50,r:8},{w:50,r:8},{w:50,r:8}] },
+      '바벨로우': { cat: 'BACK', MAIN: [{w:50,r:6},{w:50,r:6},{w:50,r:6}], ASSIST: [{w:40,r:10},{w:40,r:9},{w:40,r:8}] },
+      'V스쿼트': { cat: 'LEG', MAIN: [{w:80,r:6},{w:80,r:6},{w:80,r:6}], ASSIST: [{w:60,r:10},{w:60,r:10},{w:60,r:9}] },
+      '레그익스텐션': { cat: 'LEG', MAIN: [{w:80,r:6},{w:80,r:6},{w:80,r:6}], ASSIST: [{w:70,r:10},{w:70,r:8},{w:70,r:7}] },
+      '라잉레그컬': { cat: 'LEG', MAIN: [{w:65,r:6},{w:65,r:6},{w:65,r:6}], ASSIST: [{w:55,r:8},{w:55,r:7},{w:55,r:6}] },
+      '힙어브덕션': { cat: 'LEG', MAIN: [{w:85,r:8},{w:85,r:8},{w:85,r:8}], ASSIST: [{w:75,r:12},{w:75,r:12},{w:75,r:12}] },
+      '핵스쿼트': { cat: 'LEG', MAIN: [{w:70,r:6},{w:70,r:6},{w:70,r:6}], ASSIST: [{w:50,r:10},{w:50,r:10},{w:50,r:10}] },
+      '루마니안 데드리프트': { cat: 'LEG', MAIN: [{w:70,r:6},{w:70,r:6},{w:70,r:6}], ASSIST: [{w:55,r:10},{w:55,r:10},{w:55,r:8}] },
+      '시티드레그컬': { cat: 'LEG', MAIN: [{w:50,r:6},{w:50,r:6},{w:50,r:6}], ASSIST: [{w:40,r:8},{w:40,r:8},{w:40,r:8}] },
+      '바벨오버헤드프레스': { cat: 'SHOULDER', MAIN: [{w:40,r:6},{w:40,r:6},{w:40,r:6}], ASSIST: [{w:30,r:10},{w:30,r:10},{w:30,r:8}] },
+      '사레레머신': { cat: 'SHOULDER', MAIN: [{w:50,r:8},{w:50,r:8},{w:50,r:8}], ASSIST: [{w:40,r:12},{w:40,r:8},{w:40,r:6}] },
+      '리버스펙덱플라이': { cat: 'SHOULDER', MAIN: [{w:55,r:8},{w:55,r:8},{w:55,r:8}], ASSIST: [{w:45,r:12},{w:45,r:10},{w:45,r:8}] },
+      '밀리터리프레스': { cat: 'SHOULDER', MAIN: [{w:40,r:6},{w:40,r:6},{w:40,r:6}], ASSIST: [{w:30,r:10},{w:30,r:9},{w:30,r:8}] },
+      '이지바컬': { cat: 'BICEPS', MAIN: [{w:35,r:6},{w:35,r:6},{w:35,r:6}], ASSIST: [{w:25,r:10},{w:25,r:9},{w:25,r:6}] },
+      '해머컬': { cat: 'BICEPS', MAIN: [{w:16,r:6},{w:16,r:6},{w:16,r:6}], ASSIST: [{w:12,r:8},{w:12,r:8},{w:12,r:8}] },
+      '푸쉬다운': { cat: 'TRICEPS', MAIN: [{w:55,r:6},{w:55,r:6},{w:55,r:6}], ASSIST: [{w:45,r:10},{w:45,r:7},{w:45,r:5}] },
+      '오버헤드익스텐션': { cat: 'TRICEPS', MAIN: [{w:35,r:6},{w:35,r:6},{w:35,r:6}], ASSIST: [{w:25,r:8},{w:25,r:8},{w:25,r:8}] }
+    };
+
+    let curDay = 'UPPER_1';
+    let appState = null;
+
+    // 데이터 불러오기: 저장소가 존재하면 그 어떤 경우에도 기본값으로 덮어쓰지 않음
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        appState = JSON.parse(stored);
+      }
+    } catch(e) {}
+
+    // 생전 처음 켤 때만 기본값 생성
+    if (!appState || !appState.routines) {
+      appState = {
+        routines: JSON.parse(JSON.stringify(RAW_INIT_ROUTINES)),
+        exData: JSON.parse(JSON.stringify(RAW_INIT_EX_DATA)),
+        memos: {}
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+    }
+
+    let targetSlotIndex = null;
+    let modalCurCategory = 'CHEST';
+    let targetMemoExName = null;
+
+    // 물리 저장 함수
+    function save() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+      } catch(e) {
+        console.error('저장 실패:', e);
+      }
+    }
+
+    // iOS 사파리 종료/백그라운드 즉각 대응
+    window.addEventListener('pagehide', save);
+    window.addEventListener('beforeunload', save);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') save();
+    });
+
+    function getRoleSets(name, role, defaultCat = 'CHEST') {
+      if (!appState.exData[name]) {
+        appState.exData[name] = {
+          cat: defaultCat,
+          MAIN: [{w: 40, r: 6}, {w: 40, r: 6}, {w: 40, r: 6}],
+          ASSIST: [{w: 30, r: 8}, {w: 30, r: 8}, {w: 30, r: 8}]
+        };
+        save();
+      }
+      return appState.exData[name][role] || appState.exData[name].ASSIST;
+    }
+
+    function switchDay(day) {
+      curDay = day;
+      render();
+    }
+
+    function render() {
+      ['UPPER_1','LOWER_1','UPPER_2','LOWER_2'].forEach(d => {
+        const el = document.getElementById('t-' + d);
+        if (d === curDay) {
+          el.className = 'py-1.5 text-xs font-bold rounded-lg text-center bg-sky-500 text-slate-950 shadow';
+        } else {
+          el.className = 'py-1.5 text-xs font-bold rounded-lg text-center text-slate-400';
+        }
+      });
+
+      const box = document.getElementById('list');
+      const slots = appState.routines[curDay];
+
+      box.innerHTML = slots.map((slot, i) => {
+        const sets = getRoleSets(slot.exName, slot.role, slot.category);
+        const note = appState.memos[slot.exName] || '';
+        const hasNote = Boolean(note.trim());
+        const catName = CATEGORIES.find(c => c.id === slot.category)?.name || '부위';
+
+        return `
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+            <div class="text-[11px] font-bold text-sky-400 mb-1 flex items-center justify-between">
+              <span>🎯 ${slot.label}</span>
+              <span class="text-[10px] text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                ${catName}
+              </span>
+            </div>
+
+            <div class="flex justify-between items-center mb-2.5">
+              <div class="flex items-center gap-1.5">
+                <button onclick="openSwapModal(${i})" class="flex items-center gap-1 text-left group bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-lg">
+                  <span class="font-bold text-sm text-white group-active:text-sky-400">${slot.exName}</span>
+                  <span class="text-[10px] text-sky-400">교체▾</span>
+                </button>
+                <button onclick="openMemoModal('${slot.exName}')" class="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black transition-colors ${hasNote ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-400/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}">!</button>
+              </div>
+
+              <div class="flex items-center gap-1.5">
+                <div class="flex text-[11px] bg-slate-950 rounded p-0.5 border border-slate-800">
+                  <button onclick="setRole(${i},'MAIN')" class="px-2 py-0.5 rounded ${slot.role === 'MAIN' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400'}">메인</button>
+                  <button onclick="setRole(${i},'ASSIST')" class="px-2 py-0.5 rounded ${slot.role === 'ASSIST' ? 'bg-sky-500 text-slate-950 font-bold' : 'text-slate-400'}">보조</button>
+                </div>
+                <button onclick="removeSlot(${i})" class="text-slate-500 hover:text-rose-400 text-xs px-1.5 py-1">✕</button>
+              </div>
+            </div>
+
+            ${hasNote ? `<div onclick="openMemoModal('${slot.exName}')" class="mb-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs truncate cursor-pointer">💡 ${note}</div>` : ''}
+
+            <!-- 세트 목록 -->
+            <div class="space-y-1.5">
+              ${sets.map((s, si) => `
+                <div class="flex justify-between items-center bg-slate-950/60 p-1.5 px-2 rounded-lg text-xs">
+                  <span class="text-slate-400 font-bold">${si+1}세트</span>
+                  <div class="flex gap-2">
+                    <div class="flex items-center bg-slate-900 rounded border border-slate-800">
+                      <button onclick="chgW(${i},${si},-2.5)" class="w-7 h-7 text-slate-300 active:text-white font-bold text-sm">-</button>
+                      <input type="number" step="any" value="${s.w}" 
+                        oninput="onInputVal(${i}, ${si}, 'w', this.value)"
+                        class="w-12 bg-transparent text-center font-bold text-white focus:bg-slate-800 focus:outline-none rounded" />
+                      <span class="text-[10px] text-slate-500 pr-1">k</span>
+                      <button onclick="chgW(${i},${si},2.5)" class="w-7 h-7 text-slate-300 active:text-white font-bold text-sm">+</button>
+                    </div>
+                    <div class="flex items-center bg-slate-900 rounded border border-slate-800">
+                      <button onclick="chgR(${i},${si},-1)" class="w-7 h-7 text-slate-300 active:text-white font-bold text-sm">-</button>
+                      <input type="number" value="${s.r}" 
+                        oninput="onInputVal(${i}, ${si}, 'r', this.value)"
+                        class="w-9 bg-transparent text-center font-bold ${s.r >= (slot.role === 'MAIN' ? 8 : 12) ? 'text-emerald-400' : 'text-white'} focus:bg-slate-800 focus:outline-none rounded" />
+                      <span class="text-[10px] text-slate-500 pr-1">회</span>
+                      <button onclick="chgR(${i},${si},1)" class="w-7 h-7 text-slate-300 active:text-white font-bold text-sm">+</button>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="flex justify-end gap-3 mt-2 pt-1 border-t border-slate-800/40 text-[11px]">
+              <button onclick="addSet(${i})" class="text-sky-400 hover:underline">+ 세트 추가</button>
+              <button onclick="removeSet(${i})" class="text-slate-500 hover:underline">- 세트 삭제</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function onInputVal(slotIndex, si, type, val) {
+      const slot = appState.routines[curDay][slotIndex];
+      const sets = getRoleSets(slot.exName, slot.role);
+      const parsed = type === 'w' ? parseFloat(val) : parseInt(val, 10);
+      if (!isNaN(parsed)) {
+        sets[si][type] = Math.max(0, parsed);
+        save();
+      }
+    }
+
+    function chgW(slotIndex, si, d) {
+      const slot = appState.routines[curDay][slotIndex];
+      const sets = getRoleSets(slot.exName, slot.role);
+      sets[si].w = Math.max(0, parseFloat((sets[si].w + d).toFixed(1)));
+      save(); 
+      render();
+    }
+
+    function chgR(slotIndex, si, d) {
+      const slot = appState.routines[curDay][slotIndex];
+      const sets = getRoleSets(slot.exName, slot.role);
+      sets[si].r = Math.max(0, sets[si].r + d);
+      save(); 
+      render();
+    }
+
+    function addSet(slotIndex) {
+      const slot = appState.routines[curDay][slotIndex];
+      const sets = getRoleSets(slot.exName, slot.role);
+      const last = sets[sets.length - 1] || { w: 40, r: 8 };
+      sets.push({ w: last.w, r: last.r });
+      save(); 
+      render();
+    }
+
+    function removeSet(slotIndex) {
+      const slot = appState.routines[curDay][slotIndex];
+      const sets = getRoleSets(slot.exName, slot.role);
+      if (sets.length > 1) {
+        sets.pop();
+        save(); 
+        render();
+      }
+    }
+
+    function setRole(index, role) {
+      appState.routines[curDay][index].role = role;
+      save(); 
+      render();
+    }
+
+    function removeSlot(index) {
+      if (confirm('이 슬롯을 현재 루틴에서 삭제할까요? (기록은 보존됩니다)')) {
+        appState.routines[curDay].splice(index, 1);
+        save(); 
+        render();
+      }
+    }
+
+    function openSwapModal(index) {
+      targetSlotIndex = index;
+      const slot = appState.routines[curDay][index];
+      modalCurCategory = slot.category || appState.exData[slot.exName]?.cat || 'CHEST';
+      
+      const catLabel = CATEGORIES.find(c => c.id === modalCurCategory)?.name || '해당';
+      document.getElementById('swapModalSub').innerText = `${slot.label} 👉 '${catLabel}' 종목 목록`;
+      document.getElementById('newCustomExInput').value = '';
+      
+      renderModalCategoryTabs();
+      renderLibraryList();
+      document.getElementById('swapModal').classList.remove('hidden');
+    }
+
+    function closeSwapModal() {
+      document.getElementById('swapModal').classList.add('hidden');
+      targetSlotIndex = null;
+    }
+
+    function setModalCategory(catId) {
+      modalCurCategory = catId;
+      const catLabel = CATEGORIES.find(c => c.id === modalCurCategory)?.name || '선택';
+      document.getElementById('swapModalSub').innerText = `'${catLabel}' 종목 목록`;
+      renderModalCategoryTabs();
+      renderLibraryList();
+    }
+
+    function renderModalCategoryTabs() {
+      const tabs = document.getElementById('categoryTabs');
+      tabs.innerHTML = CATEGORIES.map(c => {
+        const isSelected = modalCurCategory === c.id;
+        return `
+          <button onclick="setModalCategory('${c.id}')" class="py-1 text-xs font-bold rounded transition-colors ${isSelected ? 'bg-sky-500 text-slate-950 font-black' : 'text-slate-400 hover:text-slate-200'}">
+            ${c.name}
+          </button>
+        `;
+      }).join('');
+    }
+
+    function renderLibraryList() {
+      const container = document.getElementById('exerciseLibraryList');
+      const allNames = Object.keys(appState.exData);
+      const curSlotRole = targetSlotIndex !== null ? appState.routines[curDay][targetSlotIndex].role : 'MAIN';
+
+      const filteredNames = allNames.filter(name => {
+        if (modalCurCategory === 'ALL') return true;
+        return appState.exData[name].cat === modalCurCategory;
+      });
+
+      if (filteredNames.length === 0) {
+        const catName = CATEGORIES.find(c => c.id === modalCurCategory)?.name;
+        container.innerHTML = `<div class="text-center py-8 text-slate-500 text-xs">${catName} 부위에 등록된 종목이 없습니다.<br>위 입력창에서 바로 등록해보세요!</div>`;
+        return;
+      }
+
+      container.innerHTML = filteredNames.map(name => {
+        const item = appState.exData[name];
+        const roleSets = item[curSlotRole] || item.MAIN;
+        const catName = CATEGORIES.find(c => c.id === item.cat)?.name || '기타';
+        return `
+          <div class="flex justify-between items-center bg-slate-950 p-2 rounded-lg border border-slate-800 gap-1.5">
+            <button onclick="selectSwapExercise('${name}')" class="text-left font-bold text-xs text-white flex-1 truncate hover:text-sky-400">
+              ${name}
+            </button>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button onclick="cycleCategory('${name}')" title="부위 변경" class="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-sky-300 font-semibold rounded border border-slate-700">
+                ${catName} ⇄
+              </button>
+              <span class="text-[10px] text-slate-500 font-mono">${roleSets[0].w}k×${roleSets[0].r}</span>
+              <button onclick="renameExercise('${name}')" class="px-1.5 py-0.5 text-[10px] bg-slate-800 text-slate-300 hover:text-white rounded border border-slate-700">수정</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function cycleCategory(name) {
+      const validCats = CATEGORIES.filter(c => c.id !== 'ALL');
+      const curCat = appState.exData[name].cat || 'CHEST';
+      const curIdx = validCats.findIndex(c => c.id === curCat);
+      const nextCat = validCats[(curIdx + 1) % validCats.length];
+
+      appState.exData[name].cat = nextCat.id;
+      save();
+      renderLibraryList();
+      render();
+    }
+
+    function renameExercise(oldName) {
+      const newName = prompt(`'${oldName}'의 새 이름을 입력하세요:`, oldName);
+      if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+
+      const trimmedNew = newName.trim();
+      if (appState.exData[trimmedNew]) {
+        alert('이미 존재하는 종목 이름입니다.');
+        return;
+      }
+
+      appState.exData[trimmedNew] = appState.exData[oldName];
+      delete appState.exData[oldName];
+
+      if (appState.memos[oldName]) {
+        appState.memos[trimmedNew] = appState.memos[oldName];
+        delete appState.memos[oldName];
+      }
+
+      Object.keys(appState.routines).forEach(day => {
+        appState.routines[day].forEach(slot => {
+          if (slot.exName === oldName) slot.exName = trimmedNew;
+        });
+      });
+
+      save();
+      renderLibraryList();
+      render();
+    }
+
+    // 종목 교체 핵심: 슬롯의 종목명을 바꾼 뒤 즉시 save()로 브라우저에 강제 각인
+    function selectSwapExercise(name) {
+      if (targetSlotIndex !== null) {
+        appState.routines[curDay][targetSlotIndex].exName = name;
+        save();
+        closeSwapModal();
+        render();
+      }
+    }
+
+    function addNewCustomExercise() {
+      const input = document.getElementById('newCustomExInput');
+      const val = input.value.trim();
+      if (!val) return;
+      
+      const chosenCat = modalCurCategory === 'ALL' ? 'CHEST' : modalCurCategory;
+      if (!appState.exData[val]) {
+        appState.exData[val] = {
+          cat: chosenCat,
+          MAIN: [{w:40, r:6}, {w:40, r:6}, {w:40, r:6}],
+          ASSIST: [{w:30, r:8}, {w:30, r:8}, {w:30, r:8}]
+        };
+      } else {
+        appState.exData[val].cat = chosenCat;
+      }
+      selectSwapExercise(val);
+    }
+
+    function openAddSlotModal() {
+      const catName = prompt('추가할 슬롯의 부위를 입력하세요 (가슴, 등, 하체, 어깨, 이두, 삼두 중 하나):', '등');
+      if (!catName) return;
+      
+      let matchedCat = CATEGORIES.find(c => c.name === catName.trim());
+      const catId = matchedCat ? matchedCat.id : 'BACK';
+      const label = matchedCat ? matchedCat.name : catName.trim();
+
+      const exName = prompt('배치할 기본 운동 종목 이름을 입력하세요:', '시티드로우');
+      if (!exName) return;
+
+      getRoleSets(exName, 'ASSIST', catId);
+      appState.routines[curDay].push({ label, category: catId, exName, role: 'ASSIST' });
+      save(); 
+      render();
+    }
+
+    function openMemoModal(name) {
+      targetMemoExName = name;
+      document.getElementById('memoModalTitle').innerText = `${name} 메모`;
+      document.getElementById('memoInput').value = appState.memos[name] || '';
+      document.getElementById('memoModal').classList.remove('hidden');
+    }
+
+    function closeMemoModal() {
+      document.getElementById('memoModal').classList.add('hidden');
+      targetMemoExName = null;
+    }
+
+    function saveMemo() {
+      if (targetMemoExName) {
+        const text = document.getElementById('memoInput').value.trim();
+        if (text) {
+          appState.memos[targetMemoExName] = text;
+        } else {
+          delete appState.memos[targetMemoExName];
+        }
+        save(); 
+        render();
+      }
+      closeMemoModal();
+    }
+
+    function completeWorkout() {
+      let up = [];
+      const slots = appState.routines[curDay];
+
+      slots.forEach(slot => {
+        const target = slot.role === 'MAIN' ? 8 : 12;
+        const sets = getRoleSets(slot.exName, slot.role);
+
+        if (sets.every(s => s.r >= target)) {
+          const nw = parseFloat((sets[0].w + 2.5).toFixed(1));
+          sets.forEach(s => { s.w = nw; });
+          up.push(`[${slot.role==='MAIN'?'메인':'보조'}] ${slot.exName} -> ${nw}kg 증량!`);
+        }
+      });
+
+      save(); 
+      render();
+      alert(up.length ? '🎉 과부하 증량 성공:\n' + up.join('\n') : '💪 운동 완료! 오늘 기록이 영구 저장되었습니다.');
+    }
+
+    function exportData() {
+      const a = document.createElement('a');
+      a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(appState));
+      a.download = 'workout_data.json'; 
+      a.click();
+    }
+
+    function importData(e) {
+      const f = e.target.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = ev => {
+        const parsed = JSON.parse(ev.target.result);
+        if (parsed.routines && parsed.exData) {
+          appState = parsed;
+          save(); 
+          render(); 
+          alert('복원 완료');
+        }
+      };
+      r.readAsText(f);
+    }
+
+    render();
+  </script>
+</body>
+</html>
